@@ -1,9 +1,11 @@
 import hashlib
 import json
+import requests
 
 from textwrap import dedent
 from time import time
 from uuid import uuid4
+from urllib.parse import urlparse
 
 from flask import Flask, jsonify, request
 
@@ -19,6 +21,84 @@ class Blockchain(object):
 
         # Create new genesis block
         self.new_block(previous_hash=1, proof=100)
+        self.nodes = set()  # Holds list of decentralized nodes | nodes distinct
+
+    def register_node(self, address):
+        '''
+        Add a new node to list of nodes
+
+        :param address: Address of node Ex. 192.168.1.1:5000
+        :return:
+        '''
+
+        parsed_node_url = urlparse(address)
+        self.nodes.add(parsed_node_url.netloc)
+
+    def valid_chain(self, chain):
+        '''
+        Checks if given blockchain is valid
+        :param chain: A blockchain
+        :return: True/False
+        '''
+
+        last_block = chain[0]
+        current_index = 1
+
+        while current_index < len(chain):
+            block = chain[current_index]
+            print(f'{last_block}')
+            print(f'{block}')
+            print("\n-----------\n")
+
+            # Hash check of block
+            if block['previous_hash'] != self.hash(last_block):
+                return False
+
+            # PoW check
+            if not self.valid_proof(last_block['proof'], block['proof']):
+                return False
+
+            last_block = block
+            current_index += 1
+        return True
+
+    def resolve_conflicts(self):
+        '''
+        Consensus Algo - resolves conflicts by replacing chain with
+        longest one in network => made rule: longest chain is authoritative
+
+        Used to reach consensus among nodes about the authoritative chain
+
+        Replaces current chain with longest on network
+
+        :return: True if chain replaced
+        '''
+
+        neighbours = self.nodes
+        new_chain = None
+
+        # Look for longest chain
+        max_length = len(self.chain)
+
+        # Verify chains from all nodes
+        for node in neighbours:
+            resp = requests.get(f'http://{node}/chain')
+            if resp.status_code == 200:
+                # Good request
+                length = resp.json()['length']
+                chain = resp.json()['chain']
+
+                # Check if len longer + chain is valid
+                if length > max_length and self.valid_chain(chain):
+                    max_length = length
+                    new_chain = chain
+
+        # Replace chain if new, longer chain found
+        if new_chain:
+            self.chain = new_chain
+            return True
+
+        return False
 
     def new_block(self, proof, previous_hash=None):
         '''
@@ -182,6 +262,48 @@ def full_chain():
         'length': len(blockchain.chain)
     }
     return jsonify(resp), 200
+
+@app.route('/nodes/register', methods=['POST'])
+def register_nodes():
+    '''
+    Adds new neighbour nodes
+    :return:
+    '''
+    values = request.get_json()
+
+    nodes = values.get('nodes')
+
+    # Error check for nodes found in POST request
+    if nodes is None:
+        return "Error: Please supply valid list of nodes", 400
+
+    # Add valid nodes to node_register
+    for node in nodes:
+        blockchain.register_node(node)
+
+    resp = {
+        'message': 'New nodes have been added',
+        'total_nodes': list(blockchain.nodes)
+    }
+    return jsonify(resp), 201
+
+@app.route('/nodes/resolve', methods=['GET'])
+def consensus():
+    replaced_chain = blockchain.resolve_conflicts()
+
+    # replace check
+    if replaced_chain:
+        resp = {
+            'message': 'The chain was replaced with the authoritative chain',
+            'new_chain': blockchain.chain
+        }
+    else:
+        resp = {
+            'message': 'This chain is the authoritative chain',
+            'chain': blockchain.chain
+        }
+    return  jsonify(resp), 200
+
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000)
