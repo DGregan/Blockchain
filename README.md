@@ -7,3 +7,8 @@ Creating a simple blockchain to interact through API endpoints to better underst
   - New_Transaction: Verifies data to be sent in the POST request then creates a new transaction to be added to the Block.
   
   - Full Chain: Displays full information from the blockchain 
+
+  - Register_nodes: Lets a node on the network know about neighvour nodes
+  
+  - Consensus: Uses the consensus algorithm to resolve conflicts to ensure a node has the correct chain (Correct chain =
+  longest valid chain available)
